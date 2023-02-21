@@ -214,6 +214,9 @@ def controlnet_api(_: gr.Blocks, app: FastAPI):
 
         shared.state.begin()
 
+        if len(scripts.scripts_txt2img.alwayson_scripts) == 0:
+            scripts.scripts_txt2img.initialize_scripts(is_img2img=False)
+
         processed = scripts.scripts_txt2img.run(p, *(p.script_args))
         
         if processed is None: # fall back
@@ -366,6 +369,9 @@ def controlnet_api(_: gr.Blocks, app: FastAPI):
         p.extra_generation_params["Mask blur"] = mask_blur
 
         shared.state.begin()
+
+        if len(scripts.scripts_txt2img.alwayson_scripts) == 0:
+            scripts.scripts_txt2img.initialize_scripts(is_img2img=False)
 
         processed = scripts.scripts_img2img.run(p, *(p.script_args)) # todo: extend to include wither alwaysvisible scripts
         

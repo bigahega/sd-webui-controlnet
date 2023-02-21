@@ -419,7 +419,7 @@ class Script(scripts.Script):
                 self.unloadable.get(last_module, lambda:None)()
 
         enabled, module, model, weight, image, scribble_mode, \
-            resize_mode, rgbbgr_mode, lowvram, pres, pthr_a, pthr_b, guidance_strength, guess_mode = args
+            resize_mode, rgbbgr_mode, lowvram, pres, pthr_a, pthr_b, guidance_strength, guess_mode = args[1:15]
         
         # Other scripts can control this extension now
         if shared.opts.data.get("control_net_allow_script_control", False):
@@ -453,7 +453,7 @@ class Script(scripts.Script):
         self.latest_model_hash = p.sd_model.sd_model_hash
         if models_changed:
             restore_networks()
-            model_path = cn_models.get(model, None)
+            model_path = cn_models.get(cn_models_names.get(model), None)
 
             if model_path is None:
                 raise RuntimeError(f"model not found: {model}")
@@ -502,7 +502,7 @@ class Script(scripts.Script):
                 raise ValueError('controlnet is enabled but no input image is given')
             input_image = HWC3(np.asarray(input_image))
             
-        if issubclass(type(p), StableDiffusionProcessingImg2Img) and p.inpaint_full_res == True:
+        if issubclass(type(p), StableDiffusionProcessingImg2Img) and p.inpaint_full_res is True and p.image_mask is not None:
             input_image = Image.fromarray(input_image)
             mask = p.image_mask.convert('L')
             crop_region = masking.get_crop_region(np.array(mask), p.inpaint_full_res_padding)
