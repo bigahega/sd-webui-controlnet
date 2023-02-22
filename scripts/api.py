@@ -112,7 +112,7 @@ def controlnet_api(_: gr.Blocks, app: FastAPI):
         cfg_scale: float = Body(7, title="CFG"),
         width: int = Body(512, title="width"),
         height: int = Body(512, title="height"),
-        restore_faces: bool = Body(True, title="Restore Faces"),
+        restore_faces: bool = Body(False, title="Restore Faces"),
         override_settings: Dict[str, Any] = Body(None, title="Override Settings"),
         override_settings_restore_afterwards: bool = Body(True, title="Restore Override Settings Afterwards"),    
         ):
