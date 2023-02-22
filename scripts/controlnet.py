@@ -391,7 +391,7 @@ class Script(scripts.Script):
 
     def build_control_model(self, p, unet, model, lowvram):
 
-        model_path = cn_models.get(model, None)
+        model_path = cn_models.get(cn_models_names.get(model), None)
         if model_path is None:
             raise RuntimeError(f"model not found: {model}")
 
@@ -433,7 +433,7 @@ class Script(scripts.Script):
             self.latest_network.restore(unet)
 
         control_groups = []
-        params_group = [args[i:i + 14] for i in range(0, len(args), 14)]
+        params_group = [args[i:i + 14] for i in range(1, len(args), 14)]
         for idx, params in enumerate(params_group):
             enabled, module, model, weight = params[:4]
             guidance_strength = params[13]
