@@ -102,13 +102,13 @@ def unload_midas():
 
 model_leres = None
 
-def leres(img, res=512, a=np.pi * 2.0, thr_a=0, thr_b=0, **kwargs):
+def leres(img, res=512, a=np.pi * 2.0, thr_a=0, thr_b=0, enable_boost=False, **kwargs):
     img = resize_image(HWC3(img), res)
     global model_leres
     if model_leres is None:
         from annotator.leres import apply_leres
         model_leres = apply_leres
-    results = model_leres(img, thr_a, thr_b)
+    results = model_leres(img, thr_a, thr_b, enable_boost)
     return results
 
 def unload_leres():
