@@ -177,6 +177,7 @@ class Script(scripts.Script):
             "canny": canny,
             "depth": midas,
             "depth_leres": leres,
+            "depth_leres_boost": leres,
             "hed": hed,
             "mlsd": mlsd,
             "normal_map": midas_normal,
@@ -651,11 +652,11 @@ class Script(scripts.Script):
             print(f"Loading preprocessor: {module}")
             preprocessor = self.preprocessor[module]
             h, w, bsz = p.height, p.width, p.batch_size
+            enable_boost = module == "depth_leres_boost"
             if pres > 64:
-                detected_map = preprocessor(input_image, res=pres, thr_a=pthr_a, thr_b=pthr_b)
+                detected_map = preprocessor(input_image, res=pres, thr_a=pthr_a, thr_b=pthr_b, enable_boost=enable_boost)
             else:
-                detected_map = preprocessor(input_image)
-                
+                detected_map = preprocessor(input_image, enable_boost=enable_boost)
             detected_map = HWC3(detected_map)
             if module == "normal_map" or rgbbgr_mode:
                 control = torch.from_numpy(detected_map[:, :, ::-1].copy()).float().to(devices.get_device_for("controlnet")) / 255.0
