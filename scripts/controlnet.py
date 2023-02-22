@@ -17,6 +17,7 @@ from scripts.adapter import PlugableAdapter
 from scripts.utils import load_state_dict
 from scripts.hook import ControlParams, UnetHook
 from modules import sd_models
+from modules.paths import models_path
 from modules.processing import StableDiffusionProcessingImg2Img
 from modules.images import save_image
 from PIL import Image
@@ -45,12 +46,13 @@ except ImportError:
 CN_MODEL_EXTS = [".pt", ".pth", ".ckpt", ".safetensors"]
 cn_models = {}      # "My_Lora(abcd1234)" -> C:/path/to/model.safetensors
 cn_models_names = {}  # "my_lora" -> "My_Lora(abcd1234)"
-cn_models_dir = os.path.join(scripts.basedir(), "models")
+cn_models_dir = os.path.join(models_path, "ControlNet")
+cn_models_dir_old = os.path.join(scripts.basedir(), "models")
 os.makedirs(cn_models_dir, exist_ok=True)
+default_conf = os.path.join(scripts.basedir(), "models", "cldm_v15.yaml")
+default_conf_adapter = os.path.join(scripts.basedir(), "models", "sketch_adapter_v14.yaml")
 cn_detectedmap_dir = os.path.join(scripts.basedir(), "detected_maps")
 os.makedirs(cn_detectedmap_dir, exist_ok=True)
-default_conf_adapter = os.path.join(cn_models_dir, "sketch_adapter_v14.yaml")
-default_conf = os.path.join(cn_models_dir, "cldm_v15.yaml")
 default_detectedmap_dir = cn_detectedmap_dir
 refresh_symbol = '\U0001f504'       # 🔄
 switch_values_symbol = '\U000021C5' # ⇅
@@ -138,7 +140,7 @@ def update_cn_models():
     ext_dirs = (shared.opts.data.get("control_net_models_path", None), getattr(shared.cmd_opts, 'controlnet_dir', None))
     extra_lora_paths = (extra_lora_path for extra_lora_path in ext_dirs
                 if extra_lora_path is not None and os.path.exists(extra_lora_path))
-    paths = [cn_models_dir, *extra_lora_paths]
+    paths = [cn_models_dir, cn_models_dir_old, *extra_lora_paths]
 
     for path in paths:
         sort_by = shared.opts.data.get(
@@ -209,7 +211,9 @@ class Script(scripts.Script):
         ctrls = ()
         infotext_fields = []
         with gr.Accordion(name, open=False):
-            input_image = gr.Image(source='upload', mirror_webcam=False, type='numpy', tool='sketch')
+            with gr.Column():
+                input_image = gr.Image(source='upload', mirror_webcam=False, type='numpy', tool='sketch')
+                generated_image = gr.Image(label="Annotator result", visible=False)
 
             with gr.Row():
                 gr.HTML(value='<p>Enable scribble mode if your image has white background.<br >Change your brush width to make it thinner if you want to draw something.<br ></p>')
@@ -218,7 +222,7 @@ class Script(scripts.Script):
 
             with gr.Row():
                 enabled = gr.Checkbox(label='Enable', value=False)
-                scribble_mode = gr.Checkbox(label='Scribble Mode (Invert colors)', value=False)
+                scribble_mode = gr.Checkbox(label='Scribble Mode', value=False)
                 rgbbgr_mode = gr.Checkbox(label='RGB to BGR', value=False)
                 lowvram = gr.Checkbox(label='Low VRAM', value=False)
                 guess_mode = gr.Checkbox(label='Guess Mode', value=False)
@@ -363,7 +367,26 @@ class Script(scripts.Script):
                         
             create_button = gr.Button(value="Create blank canvas")
             create_button.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[input_image])
-                                                    
+
+            def run_annotator(image, module, pres, pthr_a, pthr_b):
+                img = HWC3(image['image'])
+                if not ((image['mask'][:, :, 0]==0).all() or (image['mask'][:, :, 0]==255).all()):
+                    img = HWC3(image['mask'][:, :, 0])
+                preprocessor = self.preprocessor[module]
+                result = None
+                if pres > 64:
+                    result = preprocessor(img, res=pres, thr_a=pthr_a, thr_b=pthr_b)
+                else:
+                    result = preprocessor(img)
+                return gr.update(value=result, visible=True, interactive=False)
+
+            with gr.Row():
+                annotator_button = gr.Button(value="Preview annotator result")
+                annotator_button_hide = gr.Button(value="Hide annotator result")
+
+            annotator_button.click(fn=run_annotator, inputs=[input_image, module, processor_res, threshold_a, threshold_b], outputs=[generated_image])
+            annotator_button_hide.click(fn=lambda: gr.update(visible=False), outputs=[generated_image])
+
             ctrls += (input_image, scribble_mode, resize_mode, rgbbgr_mode)
             ctrls += (lowvram,)
             ctrls += (processor_res, threshold_a, threshold_b, guidance_strength, guess_mode)
@@ -372,6 +395,7 @@ class Script(scripts.Script):
             input_image.preprocess=svgPreprocess
 
         return ctrls
+
 
     def ui(self, is_img2img):
         """this function should create gradio UI elements. See https://gradio.app/docs/#components
@@ -532,7 +556,6 @@ class Script(scripts.Script):
 
                 input_image = input_image.crop(crop_region)
                 input_image = images.resize_image(2, input_image, p.width, p.height)
-                # save_image(input_image, "/root/workspace/stable-diffusion-webui/extensions", "bpgbd")
                 input_image = HWC3(np.asarray(input_image))
 
             if scribble_mode:
