@@ -790,7 +790,7 @@ class Script(scripts.Script):
                 control, detected_map = self.detectmap_proc(detected_map, module, rgbbgr_mode, resize_mode, h, w)
                 detected_maps.append((detected_map, module))
 
-                else:
+            else:
                 control = detected_map
 
             forward_param = ControlParams(
