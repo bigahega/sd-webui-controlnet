@@ -219,6 +219,7 @@ class Script(scripts.Script):
             "clip": unload_clip,
             "depth": unload_midas,
             "depth_leres": unload_leres,
+            "depth_leres_boost": unload_leres,
             "normal_map": unload_midas,
             "pidinet": unload_pidinet,
             "openpose": unload_openpose,
