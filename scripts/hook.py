@@ -1,4 +1,4 @@
-
+import types
 import torch
 import torch.nn as nn
 from modules import devices, lowvram, shared, scripts
@@ -49,7 +49,8 @@ class ControlParams:
         start_guidance_percent,
         stop_guidance_percent, 
         advanced_weighting, 
-        is_adapter
+        is_adapter,
+        is_extra_cond
     ):
         self.control_model = control_model
         self.hint_cond = hint_cond
@@ -60,12 +61,14 @@ class ControlParams:
         self.stop_guidance_percent = stop_guidance_percent
         self.advanced_weighting = advanced_weighting
         self.is_adapter = is_adapter
+        self.is_extra_cond = is_extra_cond
 
 
 class UnetHook(nn.Module):
     def __init__(self, lowvram=False) -> None:
         super().__init__()
         self.lowvram = lowvram
+        self.batch_cond_available = True
         self.only_mid_control = shared.opts.data.get("control_net_only_mid_control", False)
         
     def hook(self, model):
@@ -103,27 +106,70 @@ class UnetHook(nn.Module):
                     if is_adapter:
                         return torch.cat([cond + x, uncond], dim=0)
             
+            # resize to sample resolution
+            base_h, base_w = base.shape[-2:]
+            xh, xw = x.shape[-2:]
+            if base_h != xh or base_w != xw:
+                x = th.nn.functional.interpolate(x, size=(base_h, base_w), mode="nearest")
+            
             return base + x
 
         def forward(self, x, timesteps=None, context=None, **kwargs):
             total_control = [0.0] * 13
             total_adapter = [0.0] * 4
+            total_extra_cond = torch.zeros([0, context.shape[-1]]).to(devices.get_device_for("controlnet"))
             only_mid_control = outer.only_mid_control
             require_inpaint_hijack = False
-
+            
+            # handle external cond first
             for param in outer.control_params:
-                if param.guidance_stopped:
+                if param.guidance_stopped or not param.is_extra_cond:
                     continue
                 if outer.lowvram:
                     param.control_model.to(devices.get_device_for("controlnet"))
                     
-                # hires stuffs
-                # note that this method may not works if hr_scale < 1.1
-                if abs(x.shape[-1] - param.hint_cond.shape[-1] // 8) > 8:
-                    only_mid_control = shared.opts.data.get("control_net_only_midctrl_hires", True)
-                    # If you want to completely disable control net, uncomment this.
-                    # return self._original_forward(x, timesteps=timesteps, context=context, **kwargs)
+                hint_cond = param.hint_cond
+                if isinstance(hint_cond, types.FunctionType):
+                    h, w = x.shape[-2:]
+                    hint_cond, _ = param.hint_cond(h*8, w*8)
+                control = param.control_model(x=x, hint=hint_cond, timesteps=timesteps, context=context)
+                total_extra_cond = torch.cat([total_extra_cond, control.clone().squeeze(0) * param.weight])
+                
+            # check if it's non-batch-cond mode (lowvram, edit model etc)
+            if context.shape[0] % 2 != 0 and outer.batch_cond_available:
+                outer.batch_cond_available = False
+                if len(total_extra_cond) > 0 or outer.guess_mode or shared.opts.data.get("control_net_cfg_based_guidance", False):
+                    print("Warning: StyleAdapter and cfg/guess mode may not works due to non-batch-cond inference")
+                
+            # concat styleadapter to cond, pad uncond to same length
+            if len(total_extra_cond) > 0 and outer.batch_cond_available:
+                total_extra_cond = torch.repeat_interleave(total_extra_cond.unsqueeze(0), context.shape[0] // 2, dim=0)
+                if outer.is_vanilla_samplers:  
+                    uncond, cond = context.chunk(2)
+                    cond = torch.cat([cond, total_extra_cond], dim=1)
+                    uncond = torch.cat([uncond, uncond[:, -total_extra_cond.shape[1]:, :]], dim=1)
+                    context = torch.cat([uncond, cond], dim=0)
+                else:
+                    cond, uncond = context.chunk(2)
+                    cond = torch.cat([cond, total_extra_cond], dim=1)
+                    uncond = torch.cat([uncond, uncond[:, -total_extra_cond.shape[1]:, :]], dim=1)
+                    context = torch.cat([cond, uncond], dim=0)
+                
+            # handle unet injection stuff
+            for param in outer.control_params:
+                if param.guidance_stopped or param.is_extra_cond:
+                    continue
+                if outer.lowvram:
+                    param.control_model.to(devices.get_device_for("controlnet"))
                     
+                hint_cond = param.hint_cond
+                if isinstance(hint_cond, types.FunctionType):
+                    h, w = x.shape[-2:]
+                    hint_cond, _ = param.hint_cond(h*8, w*8)
+
+                # Deprecated: control_net_only_midctrl_hires was removed since fed7a52. use control_net_only_mid_control instead.                  
+                # only_mid_control = shared.opts.data.get("control_net_only_midctrl_hires", True)
+                
                 # inpaint model workaround
                 x_in = x
                 control_model = param.control_model.control_model
@@ -132,8 +178,8 @@ class UnetHook(nn.Module):
                     x_in = x[:, :4, ...]
                     require_inpaint_hijack = True
                     
-                assert param.hint_cond is not None, f"Controlnet is enabled but no input image is given"  
-                control = param.control_model(x=x_in, hint=param.hint_cond, timesteps=timesteps, context=context)
+                assert hint_cond is not None, f"Controlnet is enabled but no input image is given"  
+                control = param.control_model(x=x_in, hint=hint_cond, timesteps=timesteps, context=context)
                 control_scales = ([param.weight] * 13)
                 
                 if outer.lowvram:
