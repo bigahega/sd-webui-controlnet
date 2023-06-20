@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
-from modules import devices, lowvram, shared, scripts
+from modules import devices, shared
 
 cond_cast_unet = getattr(devices, 'cond_cast_unet', lambda x: x)
 
@@ -60,18 +60,14 @@ def get_node_name(name, parent_name):
 class PlugableControlModel(nn.Module):
     def __init__(self, state_dict, config_path, lowvram=False, base_model=None) -> None:
         super().__init__()
-        config = OmegaConf.load(config_path)        
-        self.control_model = ControlNet(**config.model.params.control_stage_config.params)
+        self.config = OmegaConf.load(config_path)        
+        self.control_model = ControlNet(**self.config.model.params.control_stage_config.params)
             
         if any([k.startswith("control_model.") for k, v in state_dict.items()]):
-            
-            is_diff_model = 'difference' in state_dict
-            transfer_ctrl_opt = shared.opts.data.get("control_net_control_transfer", False) and \
-                any([k.startswith("model.diffusion_model.") for k, v in state_dict.items()])
-                
-            if (is_diff_model or transfer_ctrl_opt) and base_model is not None:
-                # apply transfer control - https://github.com/lllyasviel/ControlNet/blob/main/tool_transfer_control.py
-                
+            if 'difference' in state_dict and base_model is not None:
+                print('We will stop supporting diff models soon because of its lack of robustness.')
+                print('Please begin to use official models as soon as possible.')
+
                 unet_state_dict = base_model.state_dict()
                 unet_state_dict_keys = unet_state_dict.keys()
                 final_state_dict = {}
@@ -79,30 +75,18 @@ class PlugableControlModel(nn.Module):
                 for key in state_dict.keys():
                     if not key.startswith("control_model."):
                         continue
-                    
                     p = state_dict[key]
                     is_control, node_name = get_node_name(key, 'control_')
                     key_name = node_name.replace("model.", "") if is_control else key
-
                     if key_name in unet_state_dict_keys:
-                        if is_diff_model:
-                            # transfer control by make difference in advance
-                            p_new = p + unet_state_dict[key_name].clone().cpu()
-                        else:
-                            # transfer control by calculate offsets from (delta = p + current_unet_encoder - frozen_unet_encoder)
-                            p_new = p + unet_state_dict[key_name].clone().cpu() - state_dict["model.diffusion_model."+key_name]
+                        p_new = p + unet_state_dict[key_name].clone().cpu()
                         counter += 1
                     else:
                         p_new = p
                     final_state_dict[key] = p_new
-                    
-                print(f'Offset cloned: {counter} values')
+                print(f'Diff model cloned: {counter} values')
                 state_dict = final_state_dict
-                
             state_dict = {k.replace("control_model.", ""): v for k, v in state_dict.items() if k.startswith("control_model.")}
-        else:
-            # assume that model is done by user
-            pass
             
         self.control_model.load_state_dict(state_dict)
         if not lowvram:
@@ -357,10 +341,9 @@ class ControlNet(nn.Module):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
     
     def align(self, hint, h, w):
-        c, h1, w1 = hint.shape
+        b, c, h1, w1 = hint.shape
         if h != h1 or w != w1:
-            hint = align(hint.unsqueeze(0), (h, w))
-            return hint.squeeze(0)
+            return align(hint, (h, w))
         return hint
 
     def forward(self, x, hint, timesteps, context, **kwargs):

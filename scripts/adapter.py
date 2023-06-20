@@ -8,6 +8,7 @@ from collections import OrderedDict
 from omegaconf import OmegaConf
 from copy import deepcopy
 from modules import devices, lowvram, shared, scripts
+cond_cast_unet = getattr(devices, 'cond_cast_unet', lambda x: x)
 from ldm.modules.diffusionmodules.util import timestep_embedding
 from ldm.modules.diffusionmodules.openaimodel import UNetModel
 
@@ -69,15 +70,15 @@ def get_obj_from_str(string, reload=False):
 class PlugableAdapter(nn.Module):
     def __init__(self, state_dict, config_path, lowvram=False, base_model=None) -> None:
         super().__init__()
-        config = OmegaConf.load(config_path)
+        self.config = OmegaConf.load(config_path)
         model = Adapter
         try:
-            self.target = config.model.target
-            model = get_obj_from_str(config.model.target)
+            self.target = self.config.model.target
+            model = get_obj_from_str(self.config.model.target)
         except ImportError:
             pass
         
-        self.control_model = model(**config.model.params)       
+        self.control_model = model(**self.config.model.params)       
         self.control_model.load_state_dict(state_dict)
         self.lowvram = lowvram 
         self.control = None
@@ -94,14 +95,12 @@ class PlugableAdapter(nn.Module):
         if self.control is not None:
             return deepcopy(self.control)
         
-        self.hint_cond = hint
-        hint_in = hint
+        self.hint_cond = cond_cast_unet(hint)
+        hint_in = cond_cast_unet(hint)
         
         if hasattr(self.control_model, 'conv_in') and self.control_model.conv_in.in_channels == 64:
-            hint_in = hint_in[0].unsqueeze(0).unsqueeze(0)
-        else:
-            hint_in = hint_in.unsqueeze(0)
-                        
+            hint_in = hint_in[:, 0:1, :, :]
+
         self.control = self.control_model(hint_in)
         return deepcopy(self.control)
 
