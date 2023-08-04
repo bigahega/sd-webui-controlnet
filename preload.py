@@ -23,7 +23,7 @@ def preload(parser):
         "--controlnet-preprocessor-cache-size",
         type=int,
         help="Cache size for controlnet preprocessor results",
-        default=16,
+        default=0,
     )
     parser.add_argument(
         "--controlnet-loglevel",

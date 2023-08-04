@@ -251,7 +251,7 @@ class Script(scripts.Script, metaclass=(
         self.infotext_fields = []
         self.paste_field_names = []
         controls = ()
-        max_models = shared.opts.data.get("control_net_max_models_num", 1)
+        max_models = shared.opts.data.get("control_net_max_models_num", 4)
         elem_id_tabname = ("img2img" if is_img2img else "txt2img") + "_controlnet"
         with gr.Group(elem_id=elem_id_tabname):
             with gr.Accordion(f"ControlNet {controlnet_version.version_flag}", open = False, elem_id="controlnet"):
@@ -969,6 +969,8 @@ class Script(scripts.Script, metaclass=(
                         for detect_map, module in self.detected_map:
                             if detect_map is None:
                                 continue
+                            if detect_map.shape[2] == 6:
+                                continue
                             detect_map = np.ascontiguousarray(detect_map.copy()).copy()
                             detect_map = external_code.visualize_inpaint_mask(detect_map)
                             processed.images.extend([
@@ -1030,7 +1032,7 @@ def on_ui_settings():
     shared.opts.add_option("control_net_max_models_num", shared.OptionInfo(
         3, "Multi ControlNet: Max models amount (requires restart)", gr.Slider, {"minimum": 1, "maximum": 10, "step": 1}, section=section))
     shared.opts.add_option("control_net_model_cache_size", shared.OptionInfo(
-        1, "Model cache size (requires restart)", gr.Slider, {"minimum": 1, "maximum": 5, "step": 1}, section=section))
+        3, "Model cache size (requires restart)", gr.Slider, {"minimum": 1, "maximum": 5, "step": 1}, section=section))
     shared.opts.add_option("control_net_no_detectmap", shared.OptionInfo(
         False, "Do not append detectmap to output", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("control_net_detectmap_autosaving", shared.OptionInfo(

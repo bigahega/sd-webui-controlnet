@@ -1,3 +1,5 @@
+import base64
+import pickle
 from enum import Enum
 from typing import List, Any, Optional, Union, Tuple, Dict
 import numpy as np
@@ -190,8 +192,11 @@ def to_base64_nparray(encoding: str):
     """
     Convert a base64 image into the image type the extension uses
     """
-
-    return np.array(api.decode_base64_to_image(encoding)).astype('uint8')
+    try:
+        decoded = base64.b64decode(encoding)
+        return pickle.loads(decoded)
+    except (pickle.UnpicklingError, TypeError, ValueError):
+        return np.array(api.decode_base64_to_image(encoding)).astype('uint8')
 
 
 def get_all_units_in_processing(p: processing.StableDiffusionProcessing) -> List[ControlNetUnit]:
@@ -283,7 +288,7 @@ def get_max_models_num():
     Fetch the maximum number of allowed ControlNet models.
     """
 
-    max_models_num = shared.opts.data.get("control_net_max_models_num", 1)
+    max_models_num = shared.opts.data.get("control_net_max_models_num", 4)
     return max_models_num
 
 
@@ -362,7 +367,7 @@ def update_cn_script_in_place(
         return
 
     # fill in remaining parameters to satisfy max models, just in case script needs it.
-    max_models = shared.opts.data.get("control_net_max_models_num", 1)
+    max_models = shared.opts.data.get("control_net_max_models_num", 4)
     cn_units = cn_units + [ControlNetUnit(enabled=False)] * max(max_models - len(cn_units), 0)
 
     cn_script_args_diff = 0
